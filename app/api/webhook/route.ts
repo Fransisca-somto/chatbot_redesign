@@ -71,20 +71,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const body: MetaWebhookPayload = await request.json();
 
-    // Must respond to Meta within 5 seconds — process in background
-    // We return 200 immediately, then process asynchronously
-    const processing = processWebhook(body);
-
-    // Use waitUntil if available (Vercel edge), otherwise fire-and-forget
-    if (typeof globalThis !== "undefined" && "waitUntil" in globalThis) {
-      // @ts-expect-error waitUntil is available in Vercel's serverless runtime
-      globalThis.waitUntil(processing);
-    } else {
-      // Fire-and-forget with error logging
-      processing.catch((err) => {
-        console.error("[webhook] Background processing error:", err);
-      });
-    }
+    // Process the webhook synchronously before returning.
+    // Vercel terminates serverless functions after the response is sent,
+    // so fire-and-forget / background processing does NOT work.
+    // Meta allows ~15s before retrying, and our flow completes in 3-5s.
+    await processWebhook(body);
 
     return NextResponse.json({ status: "ok" }, { status: 200 });
   } catch (error) {
