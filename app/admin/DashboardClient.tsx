@@ -45,7 +45,7 @@ export default function AdminDashboard() {
         const { data } = await res.json();
         setConversations(data);
       }
-    } catch (e) {
+    } catch {
       console.error("Failed to fetch conversations");
     }
   };
@@ -69,7 +69,7 @@ export default function AdminDashboard() {
           setActiveMode(data.mode);
         }
       }
-    } catch (e) {
+    } catch {
       console.error("Failed to fetch messages");
     }
   };
@@ -132,8 +132,8 @@ export default function AdminDashboard() {
       }
       
       fetchConversations(); // refresh list to update dot color
-    } catch (e) {
-      console.error("Failed to update mode:", e);
+    } catch {
+      console.error("Failed to update mode");
       setActiveMode(activeMode); // revert on failure
     } finally {
       setTimeout(() => {
@@ -169,7 +169,7 @@ export default function AdminDashboard() {
         throw new Error("Send failed");
       }
       fetchConversations(); // refresh preview
-    } catch (e) {
+    } catch {
       alert("Failed to send message");
       fetchChatMessages(activeChat); // reload real state
     } finally {

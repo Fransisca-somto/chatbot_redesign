@@ -142,7 +142,11 @@ export async function getAgentMode(phone: string): Promise<"ai" | "human"> {
  * Set the agent mode for a phone number.
  */
 export async function setAgentMode(phone: string, mode: "ai" | "human", profileName?: string): Promise<void> {
-  const payload: any = { phone_number: phone, mode, updated_at: new Date().toISOString() };
+  const payload: { phone_number: string; mode: string; updated_at: string; profile_name?: string } = { 
+    phone_number: phone, 
+    mode, 
+    updated_at: new Date().toISOString() 
+  };
   if (profileName) payload.profile_name = profileName;
 
   const { error } = await supabase
@@ -190,7 +194,7 @@ export async function getAllConversations(): Promise<AdminConversationPreview[]>
   // A simple approach for a smaller scale app is to fetch the latest message per phone.
   
   // 1. Get all unique phones and their modes
-  const { data: modes, error: modesError } = await supabase
+  const { data: modes } = await supabase
     .from("agent_mode")
     .select("*");
     

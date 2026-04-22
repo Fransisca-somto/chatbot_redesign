@@ -1,14 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import "../admin.css"; // We'll share some styles here
 
 export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+  // No router needed as we use window.location.href
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,7 +29,7 @@ export default function AdminLogin() {
         const data = await res.json();
         setError(data.error || "Incorrect password");
       }
-    } catch (err) {
+    } catch {
       setError("An error occurred during login.");
     } finally {
       setLoading(false);
