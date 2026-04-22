@@ -6,7 +6,7 @@ const GRAPH_API_VERSION = "v18.0";
 
 // ── Types ────────────────────────────────────────────────────
 
-interface WhatsAppTextMessage {
+interface WhatsAppTextMessage { 
   messaging_product: "whatsapp";
   to: string;
   type: "text";

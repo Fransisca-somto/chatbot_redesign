@@ -12,6 +12,7 @@ export interface ConversationRow {
   role: "user" | "assistant";
   content: string;
   model_used?: string;
+  sender?: "user" | "ai" | "admin";
   created_at?: string;
 }
 
@@ -61,10 +62,13 @@ function getSupabaseClient(): SupabaseClient {
       autoRefreshToken: false,
       persistSession: false,
     },
+    global: {
+      fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' }),
+    },
   });
 }
 
-const supabase = getSupabaseClient();
+export const supabase = getSupabaseClient();
 
 // ── Conversation Helpers ─────────────────────────────────────
 
@@ -75,12 +79,14 @@ export async function saveMessage(
   phone: string,
   role: "user" | "assistant",
   content: string,
+  sender: "user" | "ai" | "admin",
   modelUsed?: string
 ): Promise<void> {
   const { error } = await supabase.from("conversations").insert({
     phone,
     role,
     content,
+    sender,
     model_used: modelUsed || null,
   });
 
@@ -111,6 +117,154 @@ export async function getConversationHistory(
 
   // Reverse so oldest messages come first (chronological order)
   return (data || []).reverse();
+}
+
+// ── Agent Mode Helpers ───────────────────────────────────────
+
+/**
+ * Get the current agent mode (AI or human) for a phone number.
+ */
+export async function getAgentMode(phone: string): Promise<"ai" | "human"> {
+  const { data, error } = await supabase
+    .from("agent_mode")
+    .select("mode")
+    .eq("phone_number", phone)
+    .single();
+
+  if (error || !data) {
+    return "ai"; // Default to AI if no record exists
+  }
+
+  return data.mode as "ai" | "human";
+}
+
+/**
+ * Set the agent mode for a phone number.
+ */
+export async function setAgentMode(phone: string, mode: "ai" | "human", profileName?: string): Promise<void> {
+  const payload: any = { phone_number: phone, mode, updated_at: new Date().toISOString() };
+  if (profileName) payload.profile_name = profileName;
+
+  const { error } = await supabase
+    .from("agent_mode")
+    .upsert(payload, { onConflict: "phone_number" });
+
+  if (error) {
+    console.error("[supabase] Failed to set agent mode:", error.message);
+    throw new Error(`Failed to set agent mode: ${error.message}`);
+  }
+}
+
+/**
+ * Update only the profile name for a user without touching the agent mode.
+ */
+export async function updateProfileName(phone: string, profileName: string): Promise<void> {
+  const { error } = await supabase
+    .from("agent_mode")
+    .upsert(
+      { phone_number: phone, profile_name: profileName, updated_at: new Date().toISOString() },
+      { onConflict: "phone_number" }
+    );
+
+  if (error) {
+    console.error("[supabase] Failed to update profile name:", error.message);
+  }
+}
+
+// ── Admin Dashboard Helpers ──────────────────────────────────
+
+export interface AdminConversationPreview {
+  phone_number: string;
+  last_message: string;
+  updated_at: string;
+  mode: "ai" | "human";
+  profile_name?: string;
+  last_sender?: "user" | "ai" | "admin";
+}
+
+/**
+ * Get a list of all unique conversations with their latest message and mode.
+ */
+export async function getAllConversations(): Promise<AdminConversationPreview[]> {
+  // This is a bit complex without a view, but we can do a grouped query or fetch distinct.
+  // A simple approach for a smaller scale app is to fetch the latest message per phone.
+  
+  // 1. Get all unique phones and their modes
+  const { data: modes, error: modesError } = await supabase
+    .from("agent_mode")
+    .select("*");
+    
+  // 2. We'll use a raw SQL-like approach if we had one, but with Supabase client we can do:
+  const { data: messages, error: messagesError } = await supabase
+    .from("conversations")
+    .select("phone, content, created_at, role, sender")
+    .order("created_at", { ascending: false });
+
+  if (messagesError) {
+    console.error("[supabase] Failed to load conversations:", messagesError.message);
+    return [];
+  }
+
+  // 3. Get names from bookings to use as identity if they have booked
+  const { data: bookings } = await supabase
+    .from("bookings")
+    .select("phone, name")
+    .order("created_at", { ascending: false });
+
+  const modeMap = new Map();
+  for (const m of modes || []) {
+    modeMap.set(m.phone_number, { mode: m.mode, profile_name: m.profile_name });
+  }
+  
+  const bookingMap = new Map();
+  for (const b of bookings || []) {
+    if (!bookingMap.has(b.phone)) {
+      bookingMap.set(b.phone, b.name);
+    }
+  }
+  
+  // Deduplicate to get only the latest message per phone
+  const previews: AdminConversationPreview[] = [];
+  const seenPhones = new Set<string>();
+
+  for (const msg of messages || []) {
+    if (!seenPhones.has(msg.phone)) {
+      seenPhones.add(msg.phone);
+      const agentData = modeMap.get(msg.phone) || { mode: "ai", profile_name: "" };
+      const bookedName = bookingMap.get(msg.phone);
+      
+      previews.push({
+        phone_number: msg.phone,
+        last_message: msg.content.substring(0, 50) + (msg.content.length > 50 ? "..." : ""),
+        updated_at: msg.created_at,
+        mode: agentData.mode,
+        profile_name: bookedName || agentData.profile_name, // Booked name takes priority
+        last_sender: msg.sender || (msg.role === 'assistant' ? 'ai' : 'user'),
+      });
+    }
+  }
+
+  return previews;
+}
+
+/**
+ * Get full conversation history and mode for a specific phone number.
+ */
+export async function getConversationByPhone(phone: string): Promise<{ messages: ConversationRow[], mode: "ai" | "human" }> {
+  const { data, error } = await supabase
+    .from("conversations")
+    .select("*")
+    .eq("phone", phone)
+    .order("created_at", { ascending: true });
+
+  const mode = await getAgentMode(phone);
+
+  if (error) {
+    console.error("[supabase] Failed to load conversation:", error.message);
+    return { messages: [], mode };
+  }
+
+  return { messages: data || [], mode };
 }
 
 // ── Deduplication Helpers ────────────────────────────────────

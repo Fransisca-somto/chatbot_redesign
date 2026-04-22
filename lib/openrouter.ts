@@ -124,13 +124,15 @@ export async function generateAIReply(
   conversationHistory: Message[],
   senderPhone: string
 ): Promise<string> {
-  const systemPrompt = buildSystemPrompt();
+  // If the history length is 1 or less, the user only has the message they just sent
+  const isNewUser = conversationHistory.length <= 1;
+  const systemPrompt = buildSystemPrompt(isNewUser);
 
-  // Build the messages array: system prompt + conversation history + latest user message
+  // Build the messages array: system prompt + conversation history
+  // (The latest userMessage is already at the end of conversationHistory because we saved it before loading history)
   const messages: Message[] = [
     { role: "system", content: systemPrompt },
     ...conversationHistory,
-    { role: "user", content: userMessage },
   ];
 
   // Try primary model (Claude Haiku) first
